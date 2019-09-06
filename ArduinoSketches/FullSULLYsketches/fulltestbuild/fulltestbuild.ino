@@ -22,6 +22,9 @@ Feather M0 LoRa. A set of Adafruit sensor boards a used.
 
 #define LED 13
 #define STR_LEN 20
+
+unsigned long inittime;
+unsigned long delT;
 //----------------------------------------------------------
 // Feather m0 LoRa
 #define RFM95_CS 8
@@ -38,7 +41,11 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 #define dZa A0
 MPU9250 IMU(Wire,0x68);
 int status;
+
 float roll = 0;
+float pitch = 0;
+float yaw = 0;
+
 float velocity = 0;
 int prevtimeroll = 0;
 int prevtimevel = 0;
@@ -46,14 +53,13 @@ int prevtimevel = 0;
 //----------------------------------------------------------
 //Altimeter
 #define SEALEVELPRESSURE_HPA (1013.25)
+const float ALPHA = 0.1;
+const float rateALPHA = 0.4;
 float initalt = 0;
+float alt = 0;
+float rawalt = 0;
 float barorate = 0;
-float prevalt = 0;
-int altcount = 0;
-float dalt = 0;
-int baroT = 0;
 Adafruit_BMP3XX bmp; // I2C
-
 //----------------------------------------------------------
 //GPS
 #define GPSSerial Serial1
@@ -184,80 +190,23 @@ void setup()
   }
   Debug("SD card init\n");
   // Additional setup
-  Debug("Waiting for GPS fix\n");
-  Debug("Press enter to skip\n");
-  bool skipgps = false;
-  while(!GPS.fix&&!skipgps)
-  {
-    UpdateGPS();
-    if (rf95.available()){
-      rf95.recv(buf,&len);
-      skipgps = true;
-    }
+  if(GPS.fix){
+    Debug("Got GPS Fix\n");
+    TxGPSData();
   }
-  Debug("Got GPS Fix\n");
-  TxGPSData();
   delay(1000);
-  Debug("Enter or detect to ");
-  Debug("log\n");
-
+  Debug("----\n");
 }//end setup
 
 //=================================================================
 //      M A I N  L O O P
 //=================================================================
-void loop()
-{
-  switch (step)
-  {
-    case 1:
-      IMU.readSensor();
-      if (acc(1)>6.0||rf95.available()) //Check for message to go ahead or axial acceleration greater than 6G
-      {
-        rf95.recv(buf,&len);
-        step++;
-        Debug("Logging data\n");
-      }
-      break;
-    
-    case 2:
-      UpdateRoll();
-      UpdateVelocity();
-      LogData();
-      if (DetectMain()){
-        delay(200);
-        Debug("Deploy, transmit\n");
-        //rf95.recv(buf,&len);
-        step++;        
-      }
-      break;
-    
-    case 3:
-      SendLoggedData();
-      Debug("\nEOF\n");
-      step++;
-      break;
-    
-    case 4:
-      UpdateGPS();
-      if (timer > millis()) timer = millis();
-      if (millis() - timer > 2000) {
-        timer = millis();
-        if(GPS.fix){
-          TxGPSData();
-        }
-        else {
-          Debug("No fix\n");
-        }
-      }
-      break;
+void loop(){
 
-    default:
-      Debug("Step out of range\n");
-      delay(2000);
-      break;
-  }
-  
+  UpdateGyro();
+  UpdateBaro();
+  SendDataLine();
+
 }
 
 //=================================================================
@@ -274,7 +223,7 @@ void BaseStationInit()
   digitalWrite(RFM95_CS,HIGH);
 }
 
-void Debug (char Tx[])
+void Debug(char Tx[])
 {
   digitalWrite(SD_CS, HIGH);
   digitalWrite(RFM95_CS,LOW);
@@ -375,51 +324,30 @@ void TxGPSData(){
   rf95.waitPacketSent();
 }
 
-void LogData(){
-  unsigned long inittime = millis();
-//Make a big CSV string line to log with timestamps in millis
+void SendShortDataLine() {
   IMU.readSensor();
-  String dataString = String(millis()/1000.0)+","+String(acc(1))+","+String(acc(2))+","+String(acc(3))+","+String(bmp.readAltitude(SEALEVELPRESSURE_HPA)-initalt)
-    +","+String(roll)+","+String(velocity)+","+String(barorate);
-//Log the line to SD
-  noInterrupts();
-  digitalWrite(SD_CS, LOW);
-  digitalWrite(RFM95_CS,HIGH);
-  File dataFile = SD.open(filename, FILE_WRITE);
-  if (dataFile){
-    dataFile.println(dataString);
-    dataFile.close();
-    Serial.println(dataString);
-  }
-  else {
-    Serial.println("error opening datalog.txt");
-  }
+  String dataString = String(roll)+","+String(pitch)+","+String(yaw)+"\n";
+  char chbuffer[STR_LEN];
+  dataString.toCharArray(chbuffer,STR_LEN);
   digitalWrite(SD_CS, HIGH);
-  digitalWrite(RFM95_CS,LOW);
-  interrupts();
+  digitalWrite(RFM95_CS, LOW);
+  rf95.send((uint8_t *)chbuffer,STR_LEN);
+  rf95.waitPacketSent();
 }
 
-void SendLoggedData() {
-  uint8_t buffer[STR_LEN];
-  digitalWrite(SD_CS, LOW);
-  digitalWrite(RFM95_CS, HIGH);
-  File dataFile = SD.open(filename, FILE_READ);
-  if (dataFile){
-    while(dataFile.available()){
-      for (int i=0;i<STR_LEN&&dataFile.available();i++) {
-        buffer[i] = dataFile.read();
-      }
-      digitalWrite(SD_CS, HIGH);
-      digitalWrite(RFM95_CS, LOW);
-      rf95.send(buffer,STR_LEN);
-      rf95.waitPacketSent();
-      digitalWrite(SD_CS, LOW);
-      digitalWrite(RFM95_CS, HIGH);
-    }
-  }
-  else
-  {
-    Debug("No log file\n");
+
+void SendDataLine() {
+  digitalWrite(SD_CS, HIGH);
+  digitalWrite(RFM95_CS, LOW);
+  IMU.readSensor();
+  String dataStrings[] = {"a" + String(roll)+","+String(pitch)+","+String(yaw)+"\n",  "b" + String(acc(1))+","+String(rawalt)+"\n"};
+  int dataElements = 2;
+  char chbuffer[STR_LEN];
+  for(int i=0; i<dataElements; i++){
+    memset(chbuffer, 0, STR_LEN);
+    dataStrings[i].toCharArray(chbuffer,STR_LEN);
+    rf95.send((uint8_t *)chbuffer,STR_LEN);
+    rf95.waitPacketSent();
   }
 }
 
@@ -445,7 +373,7 @@ float acc(int axis) {
     default:
       break;
   }
-  if (low<-7||low>7)
+  if (low<-7.0||low>7.0)
     return high;
   else
     return low;
@@ -462,39 +390,25 @@ void UpdateGPS()
   }
 }
 
-void UpdateRoll (){
-  int delT = millis()-prevtimeroll;
+void UpdateGyro (){
+  delT = millis()-prevtimeroll;
   prevtimeroll = millis();
   IMU.readSensor();
-  roll += IMU.getGyroX_rads()*57.2957795*delT/1000.0;
+  roll += IMU.getGyroX_rads()*delT/1000.0;
+  pitch += IMU.getGyroY_rads()*delT/1000.0;
+  yaw += IMU.getGyroZ_rads()*delT/1000.0;
 }
-/*
-void UpdateVelocity (){
-  int delT = millis()-prevtimevel;
-  prevtimevel = millis();
-  IMU.readSensor();
-  velocity += (sqrtf(acc(1)*acc(1)+acc(2)*acc(2)+acc(3)*acc(3))*9.81-9.81)*delT/1000;
-}*/
-void UpdateVelocity (){
-  int delT = millis()-prevtimevel;
-  prevtimevel = millis();
-  IMU.readSensor();
-  velocity += (sqrtf(acc(1)*acc(1)+acc(2)*acc(2)+acc(3)*acc(3))*9.81-9.81)*delT/1000;
-  float alt = bmp.readAltitude(SEALEVELPRESSURE_HPA)-initalt;
-  dalt += (alt-prevalt)/(delT/1000.0);
-  altcount++;
-  baroT += delT;
-  if (baroT>100){
-    barorate = dalt/altcount;
-    dalt = 0;
-    baroT = 0;
-    altcount = 0;
-  }
-  prevalt = alt;
+
+void UpdateBaro (){
+  float prevalt = alt;
+  rawalt = bmp.readAltitude(SEALEVELPRESSURE_HPA)-initalt;
+  alt = ALPHA * rawalt + (1-ALPHA)*alt;
+  float baro = (alt-prevalt)/delT*1000.0;
+  barorate = rateALPHA * baro + (1-rateALPHA)*barorate;
 }
 
 bool DetectMain() {
-  if(barorate<-5.0&&(bmp.readAltitude(SEALEVELPRESSURE_HPA)-initalt)<182.9) {
+  if(barorate<-5.0&&(alt-initalt)<182.9) {
     return true;
   }
   else {
