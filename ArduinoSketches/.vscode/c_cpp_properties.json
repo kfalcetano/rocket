@@ -1,0 +1,26 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "C:\\Users\\KevinFalcetano\\AppData\\Local\\Arduino15\\packages\\arduino\\hardware\\samd\\1.8.3\\libraries\\SAMD_BootloaderUpdater\\src",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\Mouse\\src",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\Keyboard\\src",
+                "C:\\Users\\KevinFalcetano\\Documents\\Arduino\\libraries\\SD\\src",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\SD\\src",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\Ethernet\\src",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\Firmata",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\Bridge\\src",
+                "C:\\Users\\KevinFalcetano\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.3\\**",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\**",
+                "C:\\Users\\KevinFalcetano\\Documents\\Arduino\\libraries\\**",
+                "C:\\Program Files (x86)\\Arduino\\hardware\tools\\avr\\avr\\include"
+            ],
+            "forcedInclude": [
+                "C:\\Users\\KevinFalcetano\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.3\\cores\\arduino\\Arduino.h"
+            ],
+            "intelliSenseMode": "msvc-x64"
+        }
+    ],
+    "version": 4
+}
