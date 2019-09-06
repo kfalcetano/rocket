@@ -110,49 +110,8 @@ void setup()
   rf95.setTxPower(23, false);
   // Wait for base station reply to connect boradcast
   while(!ConnectBaseStation()){;}
-  
-//-----------------------------------------------------------------
-//Altimiter Setup
-  if (!bmp.begin()) {
-    Debug("BMP init failed\n");
-    while (1);
-  }
-  Debug("BMP init success\n");
-  // Set up oversampling and filter initialization
-  bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
-  bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
-  bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
-  //bmp.setOutputDataRate(BMP3_ODR_50_HZ);
-  char alt[30];
-  float altj = bmp.readAltitude(SEALEVELPRESSURE_HPA);
-  snprintf(alt, sizeof(alt),"Junkalt: %f\n",altj);
-  Debug(alt);
-  delay(1000);
-  char alti[30];
-  initalt = bmp.readAltitude(SEALEVELPRESSURE_HPA);
-  snprintf(alti, sizeof(alti),"Initalt: %f\n",initalt);
-  Debug(alti);
 
-//----------------------------------------------------------------
-//GPS Setup
-  Debug("GPS init...\n");
-  // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
-  GPS.begin(9600);
-  // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
-  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-  // uncomment this line to turn on only the "minimum recommended" data
-  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
-  // For parsing data, we don't suggest using anything but either RMC only or RMC+GGA since
-  // the parser doesn't care about other sentences at this time
-  // Set the update rate
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 1 Hz update rate
-  // For the parsing code to work nicely and have time to sort thru the data, and
-  // print it out we don't suggest using anything higher than 1 Hz
-  // Request updates on antenna status, comment out to keep quiet
-  GPS.sendCommand(PGCMD_ANTENNA);
-  delay(1000);
-  // Ask for firmware version
-  GPSSerial.println(PMTK_Q_RELEASE);
+
 //----------------------------------------------------------------
 //Inertial Measurment Units Setup
   //Manually set analog resolution to its maximum
@@ -174,28 +133,9 @@ void setup()
   // setting SRD to 19 for a 50 Hz update rate
   IMU.setSrd(19);
   Debug("IMU init successful\n");
-  
-//----------------------------------------------------------------
-//SD Logger Setup
-  digitalWrite(RFM95_CS, HIGH);
-  if (!SD.begin(SD_CS)) {
-    Debug("Card failed\n");
-    // don't do anything more:
-    while (1);
-  }
-  int fnum = 1;
-  while(SD.exists(filename)){
-    fnum++;
-    filename = String(fnum)+".txt";
-  }
-  Debug("SD card init\n");
-  // Additional setup
-  if(GPS.fix){
-    Debug("Got GPS Fix\n");
-    TxGPSData();
-  }
-  delay(1000);
+  delay(200);
   Debug("----\n");
+
 }//end setup
 
 //=================================================================
@@ -205,7 +145,7 @@ void loop(){
 
   UpdateGyro();
   UpdateBaro();
-  SendDataLine();
+  SendShortDataLine();
 
 }
 
@@ -353,30 +293,19 @@ void SendDataLine() {
 
 float acc(int axis) {
   //Call IMU.readSensor() before using this
-  float low;
-  float high;
   switch (axis)
   {
     case 1:
-      low = -IMU.getAccelX_mss()/9.81;
-      high = (analogRead(dYa)*400.0/4095-200);
+      return IMU.getAccelX_mss();
       break;
     
     case 2:
-      low = IMU.getAccelY_mss()/9.81;
-      high = -(analogRead(dXa)*400.0/4095-200);
+      return IMU.getAccelY_mss();
       break;
-
     case 3:
-      low = -IMU.getAccelZ_mss()/9.81;
-      high = (analogRead(dZa)*400.0/4095-200);
-    default:
+      return -IMU.getAccelZ_mss();
       break;
   }
-  if (low<-7.0||low>7.0)
-    return high;
-  else
-    return low;
       
 }
 
@@ -394,9 +323,14 @@ void UpdateGyro (){
   delT = millis()-prevtimeroll;
   prevtimeroll = millis();
   IMU.readSensor();
-  roll += IMU.getGyroX_rads()*delT/1000.0;
+  float L = 0.25;
+  float p_acc = atan(acc(1)/sqrt(acc(2)*acc(2)+acc(3)*acc(3)));
+  float r_acc = atan(acc(2)/sqrt(acc(1)*acc(1)+acc(3)*acc(3)));
+  roll += -IMU.getGyroX_rads()*delT/1000.0;
+  roll = roll + L*(r_acc-roll);
   pitch += IMU.getGyroY_rads()*delT/1000.0;
-  yaw += IMU.getGyroZ_rads()*delT/1000.0;
+  pitch = pitch + L*(p_acc-pitch);
+  yaw += -IMU.getGyroZ_rads()*delT/1000.0;
 }
 
 void UpdateBaro (){
